@@ -18,15 +18,28 @@ def analyze_transactions_with_pandas(df: pd.DataFrame) -> dict:
     if debit_transactions.empty:
         return {"summary": "This user has no spending (debit) transactions to analyze."}
 
+    # Calculate spending by category (for charts)
+    category_spending = debit_transactions.groupby('category')['amount'].sum().to_dict()
     top_categories = debit_transactions.groupby('category')['amount'].sum().nlargest(5).to_string()
     top_merchants = debit_transactions['merchant_name'].value_counts().nlargest(5).to_string()
     total_debit = debit_transactions['amount'].sum()
+    
+    # Additional metrics for Streamlit
+    total_transactions = len(debit_transactions)
+    avg_transaction_amount = debit_transactions['amount'].mean()
+    unique_merchants = debit_transactions['merchant_name'].nunique()
     
     analysis = {
         "top_spending_categories": top_categories,
         "top_merchants_by_frequency": top_merchants,
         "total_debit": f"{total_debit:,.2f}",
-        "transaction_samples": df.sample(n=min(10, len(df)), random_state=42).to_string()
+        "transaction_samples": df.sample(n=min(10, len(df)), random_state=42).to_string(),
+        # Additional structured data for Streamlit
+        "category_spending": category_spending,
+        "total_spending": total_debit,
+        "total_transactions": total_transactions,
+        "average_transaction_amount": avg_transaction_amount,
+        "unique_merchants": unique_merchants
     }
     return analysis
 
