@@ -1,28 +1,30 @@
-def generate_final_report(profile_summary: str, trend_summary: str, budget_summary: str) -> str:
+def generate_final_report(profile: str, trends: str, budget: str) -> str:
     """
-    Combines the summaries from all three phases into a single, cohesive report.
+    The Insight Generator agent.
+    It takes all the individual summaries and assembles them into a single,
+    cohesive, and well-formatted final report.
     """
-    print("Executing Final Report Generation Node...")
+    print("Executing Insight Generator (Phase 4)...")
     
-    final_report = f"""
-# Your Personalized UPI Financial & Budgeting Report
+    report = f"""
+# Personalized UPI Financial & Budgeting Report
 
 ## 1. Your Financial Profile
-{profile_summary}
+{profile}
 
 ---
 
 ## 2. Recent Spending Trends
-{trend_summary}
+{trends}
 
 ---
 
 ## 3. Your Personalized Budget Plan
-{budget_summary}
+{budget}
 
 ---
-
 *This report was automatically generated based on your transaction data. This is not financial advice. Please review for accuracy.*
     """
-    print("Final report compiled.")
-    return final_report.strip()
+    
+    print("Final report compiled successfully.")
+    return report.strip()
