@@ -7,6 +7,15 @@ from main_refactored import load_and_analyze_for_streamlit
 from utils.data_loader import load_transactions
 import os
 import numpy as np
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
+from reportlab.lib.units import inch
+from datetime import datetime
+import base64
+import io
+import tempfile
 
 # Page configuration
 st.set_page_config(
@@ -168,6 +177,188 @@ def create_merchant_chart(transactions_df):
     )
     return fig
 
+def generate_pdf_report(results, processed_data):
+    """Generate a comprehensive PDF report of the financial analysis"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        textColor=colors.HexColor('#1f77b4'),
+        alignment=1  # Center alignment
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        spaceAfter=12,
+        textColor=colors.HexColor('#2c3e50'),
+        leftIndent=0
+    )
+    
+    # Title page
+    story.append(Paragraph("💰 Financial Analysis Report", title_style))
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Executive Summary
+    story.append(Paragraph("📊 Executive Summary", heading_style))
+    
+    total_users = len(results)
+    total_transactions = len(processed_data) if processed_data is not None else 0
+    total_spending = sum([r.get('pandas_analysis', {}).get('total_spending', 0) for r in results.values()])
+    avg_spending = total_spending / total_users if total_users > 0 else 0
+    
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Users Analyzed', f"{total_users}"],
+        ['Total Transactions', f"{total_transactions:,}"],
+        ['Total Spending', f"₹{total_spending:,.2f}"],
+        ['Average Spending per User', f"₹{avg_spending:,.2f}"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Individual User Analysis
+    for user_id, user_data in results.items():
+        story.append(PageBreak())
+        story.append(Paragraph(f"👤 User Analysis: {user_id}", heading_style))
+        
+        analysis = user_data.get('pandas_analysis', {})
+        profile = user_data.get('profile_summary', 'No profile available')
+        
+        # User metrics table
+        if analysis:
+            user_metrics = [
+                ['Metric', 'Value'],
+                ['Total Spending', f"₹{analysis.get('total_spending', 0):,.2f}"],
+                ['Total Transactions', f"{analysis.get('total_transactions', 0):,}"],
+                ['Average Transaction', f"₹{analysis.get('average_transaction_amount', 0):.2f}"],
+                ['Unique Merchants', f"{analysis.get('unique_merchants', 0)}"]
+            ]
+            
+            user_table = Table(user_metrics, colWidths=[2.5*inch, 2.5*inch])
+            user_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(user_table)
+            story.append(Spacer(1, 15))
+        
+        # AI-Generated Insights
+        story.append(Paragraph("🤖 AI-Generated Financial Insights", styles['Heading3']))
+        
+        # Clean and format the profile text
+        profile_lines = profile.split('\n')
+        for line in profile_lines:
+            if line.strip():
+                # Remove markdown-style formatting for PDF
+                clean_line = line.replace('**', '').strip()
+                if clean_line:
+                    story.append(Paragraph(clean_line, styles['Normal']))
+                    story.append(Spacer(1, 6))
+        
+        story.append(Spacer(1, 15))
+        
+        # Category spending breakdown
+        if 'category_spending' in analysis:
+            story.append(Paragraph("💰 Spending by Category", styles['Heading3']))
+            
+            category_data = [['Category', 'Amount', 'Percentage']]
+            total_cat_spending = sum(analysis['category_spending'].values())
+            
+            for category, amount in sorted(analysis['category_spending'].items(), key=lambda x: x[1], reverse=True):
+                percentage = (amount / total_cat_spending * 100) if total_cat_spending > 0 else 0
+                category_data.append([
+                    category,
+                    f"₹{amount:,.2f}",
+                    f"{percentage:.1f}%"
+                ])
+            
+            category_table = Table(category_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
+            category_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#27ae60')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgoldenrodyellow),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(category_table)
+            story.append(Spacer(1, 20))
+    
+    # Comparison section if multiple users
+    if len(results) > 1:
+        story.append(PageBreak())
+        story.append(Paragraph("📊 User Comparison", heading_style))
+        
+        comparison_data = [['User', 'Total Spending', 'Transactions', 'Avg Transaction', 'Unique Merchants']]
+        for user_id, data in results.items():
+            analysis = data.get('pandas_analysis', {})
+            comparison_data.append([
+                user_id,
+                f"₹{analysis.get('total_spending', 0):,.2f}",
+                f"{analysis.get('total_transactions', 0):,}",
+                f"₹{analysis.get('average_transaction_amount', 0):.2f}",
+                f"{analysis.get('unique_merchants', 0)}"
+            ])
+        
+        comparison_table = Table(comparison_data, colWidths=[1.2*inch, 1.3*inch, 1*inch, 1.2*inch, 1.3*inch])
+        comparison_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e74c3c')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lavender),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 8)
+        ]))
+        
+        story.append(comparison_table)
+    
+    # Footer
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("Report generated by Financial Agent - Transaction Analyzer", styles['Italic']))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 def display_user_analysis(user_id, user_data):
     """Display comprehensive analysis for a user"""
     st.markdown(f"""
@@ -319,6 +510,30 @@ def main():
             st.metric("Total Spending", f"₹{total_spending:,.2f}")
         with col4:
             st.metric("Avg Spending/User", f"₹{avg_spending:,.2f}")
+        
+        # Download Report Button
+        st.markdown("---")
+        col_download, col_spacer = st.columns([2, 4])
+        with col_download:
+            if st.button("📄 Download PDF Report", type="primary", help="Generate and download a comprehensive financial analysis report"):
+                with st.spinner("Generating PDF report..."):
+                    try:
+                        pdf_buffer = generate_pdf_report(results, st.session_state.processed_data)
+                        
+                        # Create download button
+                        st.download_button(
+                            label="💾 Click to Download Report",
+                            data=pdf_buffer,
+                            file_name=f"Financial_Analysis_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            help="Click to download your comprehensive financial analysis report"
+                        )
+                        st.success("✅ PDF report generated successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Error generating PDF report: {str(e)}")
+                        st.info("💡 Make sure all required packages are installed. Run: pip install reportlab kaleido")
+        
+        st.markdown("---")
         
         # User selection
         st.subheader("👥 User Analysis")
